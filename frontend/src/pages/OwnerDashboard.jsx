@@ -8,10 +8,11 @@ import {
   hexToBytes,
 } from "../lib/encryption.js";
 import { fetchFromStorage } from "../lib/storage.js";
-import { downloadBytes } from "../lib/fileHelpers.js";
+import { downloadBytes, unpackWithFilename } from "../lib/fileHelpers.js";
 import { DOCUMENT_TYPES, STATUS_LABELS } from "../lib/contracts.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import EncryptionGate from "../components/EncryptionGate.jsx";
+import { describeError } from "../lib/errorMessages.js";
 
 export default function OwnerDashboard({ wallet, encryption }) {
   const [credentials, setCredentials] = useState([]);
@@ -40,7 +41,7 @@ export default function OwnerDashboard({ wallet, encryption }) {
       );
       setCredentials(details.reverse());
     } catch (err) {
-      setStatus({ type: "error", message: err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }, [wallet.credentialRegistry, wallet.address]);
 
@@ -78,11 +79,12 @@ export default function OwnerDashboard({ wallet, encryption }) {
       const iv = packagedFile.slice(0, 12);
       const ciphertext = packagedFile.slice(12);
       const plaintext = await decryptDocument(ciphertext, iv, aesKey);
+      const { filename, bytes: originalBytes } = unpackWithFilename(plaintext, `credential-${cred.id.slice(0, 10)}`);
 
-      downloadBytes(plaintext, `credential-${cred.id.slice(0, 10)}`);
+      downloadBytes(originalBytes, filename);
       setStatus({ type: "success", message: "Document decrypted and downloaded." });
     } catch (err) {
-      setStatus({ type: "error", message: err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }
 
@@ -112,7 +114,7 @@ export default function OwnerDashboard({ wallet, encryption }) {
       setGrantForms((prev) => ({ ...prev, [cred.id]: "" }));
       loadGrantees(cred.id);
     } catch (err) {
-      setStatus({ type: "error", message: err.reason || err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }
 
@@ -124,7 +126,7 @@ export default function OwnerDashboard({ wallet, encryption }) {
       setStatus({ type: "success", message: "Access revoked." });
       loadGrantees(id);
     } catch (err) {
-      setStatus({ type: "error", message: err.reason || err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }
 

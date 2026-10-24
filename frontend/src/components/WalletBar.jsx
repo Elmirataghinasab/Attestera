@@ -30,9 +30,14 @@ export default function WalletBar({ wallet }) {
             Chain {wallet.chainId}
           </span>
         )}
-        <span className="font-hash rounded-sm border border-line bg-white px-3 py-1.5 text-sm">
+        <button
+          onClick={wallet.switchAccount}
+          title="Click to switch accounts in your wallet"
+          className="font-hash rounded-sm border border-line bg-white px-3 py-1.5 text-sm hover:bg-line/20 hover:border-registry cursor-pointer transition-colors"
+        >
           {shortenAddress(wallet.address)}
-        </span>
+          <span className="ml-2 text-muted">⇄</span>
+        </button>
       </div>
     </div>
   );

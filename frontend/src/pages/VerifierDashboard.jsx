@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { unwrapKey, deserializeWrappedKey, decryptDocument } from "../lib/encryption.js";
 import { fetchFromStorage } from "../lib/storage.js";
-import { downloadBytes } from "../lib/fileHelpers.js";
+import { downloadBytes, unpackWithFilename } from "../lib/fileHelpers.js";
 import { DOCUMENT_TYPES, STATUS_LABELS } from "../lib/contracts.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import EncryptionGate from "../components/EncryptionGate.jsx";
+import { describeError } from "../lib/errorMessages.js";
 
 export default function VerifierDashboard({ wallet, encryption }) {
   const [credentialId, setCredentialId] = useState("");
@@ -48,11 +49,12 @@ export default function VerifierDashboard({ wallet, encryption }) {
       const iv = packagedFile.slice(0, 12);
       const ciphertext = packagedFile.slice(12);
       const plaintext = await decryptDocument(ciphertext, iv, aesKey);
+      const { filename, bytes: originalBytes } = unpackWithFilename(plaintext, `credential-${credentialId.slice(0, 10)}`);
 
-      downloadBytes(plaintext, `credential-${credentialId.slice(0, 10)}`);
+      downloadBytes(originalBytes, filename);
       setStatus({ type: "success", message: "Document decrypted and downloaded." });
     } catch (err) {
-      setStatus({ type: "error", message: err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }
 

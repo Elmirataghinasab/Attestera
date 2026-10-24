@@ -31,6 +31,10 @@ export const ACCESS_CONTROL_REGISTRY_ABI = [
   "event InstitutionRevoked(address indexed institutionAddress)",
   "event MajorAdded(uint16 indexed majorId, string name)",
   "event PublicKeyRegistered(address indexed user, bytes publicKey)",
+  "error NotAdmin()",
+  "error InstitutionAlreadyApproved()",
+  "error InstitutionNotApproved()",
+  "error InvalidPublicKeyLength()",
 ];
 
 export const CREDENTIAL_REGISTRY_ABI = [
@@ -46,6 +50,12 @@ export const CREDENTIAL_REGISTRY_ABI = [
   "event CredentialRevoked(bytes32 indexed id, uint256 timestamp)",
   "event AccessGranted(bytes32 indexed credentialId, address indexed grantee, uint256 timestamp)",
   "event AccessRevoked(bytes32 indexed credentialId, address indexed grantee, uint256 timestamp)",
+  "error NotApprovedIssuer()",
+  "error InvalidMajor()",
+  "error CredentialNotFound()",
+  "error NotIssuerOfCredential()",
+  "error NotOwnerOfCredential()",
+  "error AlreadyRevoked()",
 ];
 
 // Mirrors CredentialRegistry.DocumentType exactly — order matters, these are

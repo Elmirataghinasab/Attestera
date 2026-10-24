@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { describeError } from "../lib/errorMessages.js";
 
 export default function AdminDashboard({ wallet }) {
   const [institutions, setInstitutions] = useState([]);
@@ -29,7 +30,7 @@ export default function AdminDashboard({ wallet }) {
       );
       setMajors(majorList.map((name, id) => ({ id, name })));
     } catch (err) {
-      setStatus({ type: "error", message: err.message });
+      setStatus({ type: "error", message: describeError(err) });
     } finally {
       setLoading(false);
     }
@@ -51,7 +52,7 @@ export default function AdminDashboard({ wallet }) {
       setNewInstitutionName("");
       loadAll();
     } catch (err) {
-      setStatus({ type: "error", message: err.reason || err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }
 
@@ -64,7 +65,7 @@ export default function AdminDashboard({ wallet }) {
       setStatus({ type: "success", message: "Institution revoked." });
       loadAll();
     } catch (err) {
-      setStatus({ type: "error", message: err.reason || err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }
 
@@ -79,7 +80,7 @@ export default function AdminDashboard({ wallet }) {
       setNewMajorName("");
       loadAll();
     } catch (err) {
-      setStatus({ type: "error", message: err.reason || err.message });
+      setStatus({ type: "error", message: describeError(err) });
     }
   }
 

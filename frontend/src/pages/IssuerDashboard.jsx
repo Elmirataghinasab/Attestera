@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { generateAESKey, encryptDocument, wrapKeyForRecipient, serializeWrappedKey, hexToBytes } from "../lib/encryption.js";
 import { uploadToStorage, IS_MOCK_STORAGE } from "../lib/storage.js";
-import { readFileAsBytes } from "../lib/fileHelpers.js";
+import { readFileAsBytes, packWithFilename } from "../lib/fileHelpers.js";
 import { DOCUMENT_TYPES } from "../lib/contracts.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import EncryptionGate from "../components/EncryptionGate.jsx";
+import { describeError } from "../lib/errorMessages.js";
 
 export default function IssuerDashboard({ wallet, encryption }) {
   const [majors, setMajors] = useState([]);
@@ -59,8 +60,9 @@ export default function IssuerDashboard({ wallet, encryption }) {
 
       setStatus({ type: "pending", message: "Encrypting document in your browser…" });
       const fileBytes = await readFileAsBytes(file);
+      const packedWithName = packWithFilename(fileBytes, file.name);
       const aesKey = generateAESKey();
-      const { ciphertext, iv } = await encryptDocument(fileBytes, aesKey);
+      const { ciphertext, iv } = await encryptDocument(packedWithName, aesKey);
       // Store IV alongside ciphertext so it can be retrieved together later.
       const packagedFile = new Uint8Array(iv.length + ciphertext.length);
       packagedFile.set(iv, 0);
@@ -102,7 +104,7 @@ export default function IssuerDashboard({ wallet, encryption }) {
       setOwnerAddress("");
       loadIssued();
     } catch (err) {
-      setStatus({ type: "error", message: err.reason || err.message });
+      setStatus({ type: "error", message: describeError(err) });
     } finally {
       setBusy(false);
     }

@@ -43,6 +43,34 @@ export function useWallet() {
     }
   }, []);
 
+  /**
+   * Re-opens the wallet's account picker even though we're already
+   * connected. Plain eth_requestAccounts only prompts the FIRST time — once
+   * a site is authorized, calling it again just silently returns the same
+   * account with no UI. wallet_requestPermissions forces the picker open
+   * every time, which is what a "switch account" button actually needs.
+   * Supported by MetaMask and most EIP-1193 wallets (EIP-2255).
+   */
+  const switchAccount = useCallback(async () => {
+    if (!window.ethereum || !provider) return;
+    setError(null);
+    try {
+      await window.ethereum.request({
+        method: "wallet_requestPermissions",
+        params: [{ eth_accounts: {} }],
+      });
+      const newSigner = await provider.getSigner();
+      setSigner(newSigner);
+      setAddress(await newSigner.getAddress());
+    } catch (err) {
+      // User closed the picker without choosing — not a real error, just
+      // means nothing changed. Anything else, surface it.
+      if (err?.code !== 4001) {
+        setError(err.message || "Failed to switch account.");
+      }
+    }
+  }, [provider]);
+
   // Re-sync when the user switches accounts or networks in their wallet.
   // IMPORTANT: this does NOT call connect() again — eth_requestAccounts is a
   // permission prompt meant for the FIRST connection. Re-triggering it on
@@ -97,6 +125,7 @@ export function useWallet() {
     connecting,
     error,
     connect,
+    switchAccount,
     isConnected: !!address,
     accessControl,
     credentialRegistry,
