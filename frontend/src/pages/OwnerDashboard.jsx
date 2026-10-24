@@ -9,7 +9,8 @@ import {
 } from "../lib/encryption.js";
 import { fetchFromStorage } from "../lib/storage.js";
 import { downloadBytes, unpackWithFilename } from "../lib/fileHelpers.js";
-import { DOCUMENT_TYPES, STATUS_LABELS } from "../lib/contracts.js";
+import { Contract, JsonRpcProvider } from "ethers";
+import { DOCUMENT_TYPES, STATUS_LABELS, CREDENTIAL_REGISTRY_ADDRESS, CREDENTIAL_REGISTRY_ABI } from "../lib/contracts.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import EncryptionGate from "../components/EncryptionGate.jsx";
 import { describeError } from "../lib/errorMessages.js";
@@ -18,6 +19,7 @@ export default function OwnerDashboard({ wallet, encryption }) {
   const [credentials, setCredentials] = useState([]);
   const [status, setStatus] = useState(null);
   const [grantForms, setGrantForms] = useState({}); // id -> verifier address being typed
+  const [accessMsg, setAccessMsg] = useState({}); // id -> loading/error text shown next to the button
   const [grantees, setGrantees] = useState({}); // id -> [addresses granted, from events]
 
   const loadCredentials = useCallback(async () => {
@@ -64,24 +66,58 @@ export default function OwnerDashboard({ wallet, encryption }) {
     return lo;
   }
 
+  const withTimeout = (p, ms, label) =>
+    Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(label + " timed out")), ms))]);
+
   const loadGrantees = useCallback(
     async (id) => {
+      console.log("[access] loading grantees for", id);
+      setAccessMsg((m) => ({ ...m, [id]: "Loading…" }));
       try {
-        const reg = wallet.credentialRegistry;
-        const grantedF = reg.filters.AccessGranted(id);
-        const revokedF = reg.filters.AccessRevoked(id);
+        // Try the wallet's RPC first, then a public Arbitrum Sepolia RPC. Each attempt has a timeout
+        // so a stuck RPC can never leave the button silently doing nothing.
+        const sources = [
+          { name: "wallet RPC", reg: wallet.credentialRegistry, provider: wallet.provider },
+        ];
+        const pub = new JsonRpcProvider("https://sepolia-rollup.arbitrum.io/rpc");
+        sources.push({
+          name: "public RPC",
+          reg: new Contract(CREDENTIAL_REGISTRY_ADDRESS, CREDENTIAL_REGISTRY_ABI, pub),
+          provider: pub,
+        });
 
-        let granted;
-        let revoked;
-        try {
-          [granted, revoked] = await Promise.all([reg.queryFilter(grantedF), reg.queryFilter(revokedF)]);
-        } catch {
-          // Full-range query refused: retry from roughly the credential's issue block.
-          const full = await reg.getCredential(id);
-          const latest = await wallet.provider.getBlockNumber();
-          const from = Math.max(0, (await blockAtOrAfter(wallet.provider, Number(full.issueDate), latest)) - 50);
-          [granted, revoked] = await Promise.all([reg.queryFilter(grantedF, from), reg.queryFilter(revokedF, from)]);
+        let granted = null;
+        let revoked = null;
+        const errors = [];
+        for (const s of sources) {
+          try {
+            const gF = s.reg.filters.AccessGranted(id);
+            const rF = s.reg.filters.AccessRevoked(id);
+            try {
+              [granted, revoked] = await withTimeout(
+                Promise.all([s.reg.queryFilter(gF), s.reg.queryFilter(rF)]),
+                12000,
+                s.name
+              );
+            } catch (e1) {
+              // full-range refused: retry from about the credential's issue block
+              console.warn("[access] full-range query failed on", s.name, e1);
+              const full = await withTimeout(s.reg.getCredential(id), 8000, s.name);
+              const latest = await withTimeout(s.provider.getBlockNumber(), 8000, s.name);
+              const from = Math.max(0, (await withTimeout(blockAtOrAfter(s.provider, Number(full.issueDate), latest), 30000, s.name)) - 50);
+              [granted, revoked] = await withTimeout(
+                Promise.all([s.reg.queryFilter(gF, from), s.reg.queryFilter(rF, from)]),
+                12000,
+                s.name
+              );
+            }
+            break;
+          } catch (e2) {
+            console.warn("[access] source failed:", s.name, e2);
+            errors.push(s.name + ": " + (e2.shortMessage || e2.message));
+          }
         }
+        if (!granted) throw new Error(errors.join(" | "));
 
         // Replay events in chain order so same-second grant/revoke pairs resolve correctly.
         const all = [...granted.map((e) => ({ e, add: true })), ...revoked.map((e) => ({ e, add: false }))].sort(
@@ -93,8 +129,10 @@ export default function OwnerDashboard({ wallet, encryption }) {
           else current.delete(e.args.grantee);
         }
         setGrantees((prev) => ({ ...prev, [id]: [...current] }));
+        setAccessMsg((m) => ({ ...m, [id]: "" }));
       } catch (err) {
-        setStatus({ type: "error", message: "Could not load access list: " + describeError(err) });
+        console.error("[access] failed", err);
+        setAccessMsg((m) => ({ ...m, [id]: "Could not load access list. " + (err.message || String(err)) }));
       }
     },
     [wallet.credentialRegistry, wallet.provider]
@@ -217,6 +255,9 @@ export default function OwnerDashboard({ wallet, encryption }) {
                 Show who has access
               </button>
             </div>
+            {accessMsg[cred.id] && (
+              <p className={`mt-2 text-sm ${accessMsg[cred.id] === "Loading…" ? "text-muted" : "text-seal"}`}>{accessMsg[cred.id]}</p>
+            )}
 
             {grantees[cred.id] && (
               <ul className="mt-3 space-y-1 border-t border-line/60 pt-3 text-sm">
