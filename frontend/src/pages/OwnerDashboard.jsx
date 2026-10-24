@@ -49,22 +49,55 @@ export default function OwnerDashboard({ wallet, encryption }) {
     loadCredentials();
   }, [loadCredentials]);
 
+  // Finds the first block whose timestamp is >= ts (binary search), so log queries
+  // only scan from the credential's issue time instead of the whole chain. Public
+  // RPC nodes often reject or silently fail huge getLogs ranges.
+  async function blockAtOrAfter(provider, ts, latest) {
+    let lo = 0;
+    let hi = latest;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const blk = await provider.getBlock(mid);
+      if (blk && blk.timestamp < ts) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
   const loadGrantees = useCallback(
     async (id) => {
-      const filter = wallet.credentialRegistry.filters.AccessGranted(id);
-      const events = await wallet.credentialRegistry.queryFilter(filter);
-      const revokedFilter = wallet.credentialRegistry.filters.AccessRevoked(id);
-      const revokedEvents = await wallet.credentialRegistry.queryFilter(revokedFilter);
-      const revokedAt = {};
-      for (const e of revokedEvents) revokedAt[e.args.grantee] = Number(e.args.timestamp);
+      try {
+        const reg = wallet.credentialRegistry;
+        const grantedF = reg.filters.AccessGranted(id);
+        const revokedF = reg.filters.AccessRevoked(id);
 
-      const currentlyGranted = [...new Set(events.map((e) => e.args.grantee))].filter((addr) => {
-        const lastGrant = Math.max(...events.filter((e) => e.args.grantee === addr).map((e) => Number(e.args.timestamp)));
-        return !(addr in revokedAt) || revokedAt[addr] < lastGrant;
-      });
-      setGrantees((prev) => ({ ...prev, [id]: currentlyGranted }));
+        let granted;
+        let revoked;
+        try {
+          [granted, revoked] = await Promise.all([reg.queryFilter(grantedF), reg.queryFilter(revokedF)]);
+        } catch {
+          // Full-range query refused: retry from roughly the credential's issue block.
+          const full = await reg.getCredential(id);
+          const latest = await wallet.provider.getBlockNumber();
+          const from = Math.max(0, (await blockAtOrAfter(wallet.provider, Number(full.issueDate), latest)) - 50);
+          [granted, revoked] = await Promise.all([reg.queryFilter(grantedF, from), reg.queryFilter(revokedF, from)]);
+        }
+
+        // Replay events in chain order so same-second grant/revoke pairs resolve correctly.
+        const all = [...granted.map((e) => ({ e, add: true })), ...revoked.map((e) => ({ e, add: false }))].sort(
+          (x, y) => x.e.blockNumber - y.e.blockNumber || x.e.index - y.e.index
+        );
+        const current = new Set();
+        for (const { e, add } of all) {
+          if (add) current.add(e.args.grantee);
+          else current.delete(e.args.grantee);
+        }
+        setGrantees((prev) => ({ ...prev, [id]: [...current] }));
+      } catch (err) {
+        setStatus({ type: "error", message: "Could not load access list: " + describeError(err) });
+      }
     },
-    [wallet.credentialRegistry]
+    [wallet.credentialRegistry, wallet.provider]
   );
 
   async function handleViewDocument(cred) {
